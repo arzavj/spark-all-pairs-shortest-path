@@ -2,14 +2,13 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkConf
 import org.apache.spark.mllib.linalg.{SparseMatrix, DenseMatrix, Matrix}
-import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
+import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry, BlockMatrix}
 import org.apache.spark.rdd.RDD
 import breeze.linalg.{DenseMatrix => BDM, DenseVector, min, Matrix =>BM}
 
-/**
- * Created by arzav on 5/23/15.
- */
+
 object AllPairsShortestPath {
+
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
@@ -39,7 +38,7 @@ object AllPairsShortestPath {
 
   /** change the fromBreeze() function in Matrices class, can only convert from dense breeze matrix to dense matrix*/
   def fromBreeze(dm: BDM[Double]): Matrix = {
-    val newMatrix = new DenseMatrix(dm.rows, dm.cols, dm.data, dm.isTranspose)
+    val newMatrix = new DenseMatrix(dm.rows, dm.cols, dm.toArray, dm.isTranspose)
     return newMatrix
   }
 
@@ -69,7 +68,9 @@ object AllPairsShortestPath {
 
 
   def blockMinPlus(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
-                   numRowBlocks: Int, numColBlocks: Int, ApspPartitioner: GridPartitioner): RDD[((Int, Int), Matrix)] = {
+                   numRowBlocks: Int, numColBlocks: Int, 
+                   ApspPartitioner: GridPartitioner): RDD[((Int, Int), Matrix)] = {
+
     // Each block of A must do cross plus with the corresponding blocks in each column of B.
     // TODO: Optimize to send block to a partition once, similar to ALS
     val flatA = Ablocks.flatMap { case ((blockRowIndex, blockColIndex), block) =>
@@ -87,4 +88,55 @@ object AllPairsShortestPath {
       .mapValues(C => fromBreeze(C))
     return newBlocks
   }
+
+  def distributedApsp(A: BlockMatrix, stepSize: Int,
+                      ApspPartitioner: GridPartitioner): BlockMatrix = {
+    require(A.nRows == A.nCols)
+    require(A.rowsPerBlock == A.colsPerBlock)
+    require(stepSize < A.rowsPerBlock)
+    val niter = math.ceil(A.nRows * 1.0 / stepSize).toInt
+    var apspRDD = A.blocks
+    // TODO: shuffle the data first if stepSize > 1
+    for (i <- 0 to (niter - 1)) {
+      val startBlock = i * stepSize / A.rowsPerBlock
+      val endBlock = min((i + 1) * stepSize - 1, A.nRows - 1) / A.rowsPerBlock
+      val startIndex = i * stepSize - startBlock * A.rowsPerBlock
+      val endIndex =  min((i + 1) * stepSize - 1, A.nRows - 1) - endBlock * A.rowsPerBlock
+      if (startBlock == endBlock) {
+        val rowRDD = apspRDD.filter(_._1._1 == startBlock)
+          .mapValues(localMat =>
+          fromBreeze(toBreeze(localMat)(startIndex to endIndex, ::)))
+        val colRDD  = apspRDD.filter(_._1._2 == startBlock)
+          .mapValues(localMat =>
+          fromBreeze(toBreeze(localMat)(::, startIndex to endIndex)))
+      } else {
+        // we required startBlock >= endBlock - 1 at the beginning
+        val rowRDD = apspRDD.filter(_._1._1 == startBlock || _._1._1 == endBlock)
+          .map(case ((i, j), localMat) => i match {
+          case startBlock =>
+            ((i, j),
+              fromBreeze(toBreeze(localMat)(startIndex to localMat.numRows, ::)))
+          case endBlock =>
+            ((i, j),
+              fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
+        })
+        val colRDD = apspRDD.filter(_._1._2 == startBlock || _._1._2 == endBlock)
+          .map(case ((i, j), localMat) => j match {
+          case startBlock =>
+            ((i, j),
+              fromBreeze(toBreeze(localMat)(::, startIndex to localMat.numRows)))
+          case endBlock =>
+            ((i, j),
+              fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
+        })
+      }
+
+      apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, ApspPartitioner),
+        ApspPartitioner)
+    }
+    val newMatrix = new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock,
+      A.nRows, A.nCols)
+    return newMatrix
+  }
 }
+
