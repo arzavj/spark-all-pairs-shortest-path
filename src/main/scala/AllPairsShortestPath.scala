@@ -66,26 +66,27 @@ object AllPairsShortestPath {
     return addedBlocks
   }
 
-//
-//  def blockMinPlus(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
-//                   numRowBlocks: Int, numColBlocks: Int): RDD[((Int, Int), Matrix)] = {
-//    // Each block of A must do cross plus with the corresponding blocks in each column of B.
-//    // TODO: Optimize to send block to a partition once, similar to ALS
-//    val flatA = Ablocks.flatMap { case ((blockRowIndex, blockColIndex), block) =>
-//      Iterator.tabulate(numColBlocks)(j => ((blockRowIndex, j, blockColIndex), block))
-//    }
-//    // Each block of B must do cross plus with the corresponding blocks in each row of A.
-//    val flatB = B.blocks.flatMap { case ((blockRowIndex, blockColIndex), block) =>
-//      Iterator.tabulate(numRowBlocks)(i => ((i, blockColIndex, blockRowIndex), block))
-//    }
-//    val newBlocks = flatA.join(flatB, ApspPartitioner)
-//      .map { case ((blockRowIndex, blockColIndex, _), (a, b)) =>
-//      val C = localMinPlus(toBreeze(a), toBreeze(b))
-//      return ((blockRowIndex, blockColIndex), C)
-//    }.reduceByKey(ApspPartitioner, (a, b) => a + b)
-//      .mapValues(C => fromBreeze(C))
-//    return newBlocks
-//  }
+
+  def blockMinPlus(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
+                   numRowBlocks: Int, numColBlocks: Int, 
+                   ApspPartitioner: GridPartitioner): RDD[((Int, Int), Matrix)] = {
+    // Each block of A must do cross plus with the corresponding blocks in each column of B.
+    // TODO: Optimize to send block to a partition once, similar to ALS
+    val flatA = Ablocks.flatMap { case ((blockRowIndex, blockColIndex), block) =>
+      Iterator.tabulate(numColBlocks)(j => ((blockRowIndex, j, blockColIndex), block))
+    }
+    // Each block of B must do cross plus with the corresponding blocks in each row of A.
+    val flatB = B.blocks.flatMap { case ((blockRowIndex, blockColIndex), block) =>
+      Iterator.tabulate(numRowBlocks)(i => ((i, blockColIndex, blockRowIndex), block))
+    }
+    val newBlocks = flatA.join(flatB, ApspPartitioner)
+      .map { case ((blockRowIndex, blockColIndex, _), (a, b)) =>
+      val C = localMinPlus(toBreeze(a), toBreeze(b))
+      return ((blockRowIndex, blockColIndex), C)
+    }.reduceByKey(ApspPartitioner, (a, b) => min(a, b))
+      .mapValues(C => fromBreeze(C))
+    return newBlocks
+  }
 }
 
 def distributedApsp(A: BlockMatrix, stepSize: Int, 
