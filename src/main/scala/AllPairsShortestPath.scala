@@ -38,7 +38,7 @@ object AllPairsShortestPath {
 
   /** change the fromBreeze() function in Matrices class, can only convert from dense breeze matrix to dense matrix*/
   def fromBreeze(dm: BDM[Double]): Matrix = {
-    val newMatrix = new DenseMatrix(dm.rows, dm.cols, dm.data, dm.isTranspose)
+    val newMatrix = new DenseMatrix(dm.rows, dm.cols, dm.toArray, dm.isTranspose)
     return newMatrix
   }
 
@@ -87,3 +87,54 @@ object AllPairsShortestPath {
 //    return newBlocks
 //  }
 }
+
+def distributedApsp(A: BlockMatrix, stepSize: Int, 
+					ApspPartitioner: GridPartitioner): BlockMatrix = {
+	require(A.nRows == A.nCols)
+	require(A.rowsPerBlock == A.colsPerBlock)
+	require(stepSize < A.rowsPerBlock)
+	val niter = math.ceil(A.nRows * 1.0 / stepSize).toInt
+	var apspRDD = A.blocks
+	// TODO: shuffle the data first if stepSize > 1
+	for (i <- 0 to (niter - 1)) {
+		val startBlock = i * stepSize / A.rowsPerBlock
+		val endBlock = min((i + 1) * stepSize - 1, A.nRows - 1) / A.rowsPerBlock
+		val startIndex = i * stepSize - startBlock * A.rowsPerBlock
+		val endIndex =  min((i + 1) * stepSize - 1, A.nRows - 1) - endBlock * A.rowsPerBlock
+		if (startBlock == endBlock) {
+			val rowRDD = apspRDD.filter(_._1._1 == startBlock)
+			.mapValues(localMat => 
+					   fromBreeze(toBreeze(localMat)(startIndex to endIndex, ::)))
+			val colRDD  = apspRDD.filter(_._1._2 == startBlock)
+			.mapValues(localMat => 
+					   fromBreeze(toBreeze(localMat)(::, startIndex to endIndex)))
+		} else {
+			// we required startBlock >= endBlock - 1 at the beginning
+			val rowRDD = apspRDD.filter(_._1._1 == startBlock || _._1._1 == endBlock)
+			.map(case ((i, j), localMat) => i match {
+				case startBlock => 
+					 ((i, j), 
+					  fromBreeze(toBreeze(localMat)(startIndex to localMat.numRows, ::)))
+				case endBlock =>
+					 ((i, j),
+					  fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
+			})
+			val colRDD = apspRDD.filter(_._1._2 == startBlock || _._1._2 == endBlock)
+			.map(case ((i, j), localMat) => j match {
+				case startBlock => 
+					 ((i, j), 
+					  fromBreeze(toBreeze(localMat)(::, startIndex to localMat.numRows)))
+				case endBlock =>
+					 ((i, j),
+					  fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
+			})
+		}
+		
+		apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, ApspPartitioner), 
+						   ApspPartitioner)
+	}
+	val newMatrix = new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, 
+									A.nRows, A.nCols)
+	return newMatrix
+}
+
