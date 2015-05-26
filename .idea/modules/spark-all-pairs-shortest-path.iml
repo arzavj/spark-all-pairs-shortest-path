@@ -32,8 +32,8 @@
     <orderEntry type="library" name="SBT: com.fasterxml.jackson.core:jackson-core:2.4.4:jar" level="project" />
     <orderEntry type="library" name="SBT: com.fasterxml.jackson.core:jackson-databind:2.4.4:jar" level="project" />
     <orderEntry type="library" name="SBT: com.fasterxml.jackson.module:jackson-module-scala_2.10:2.4.4:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.github.fommil.netlib:core:1.1.2:jar" level="project" />
-    <orderEntry type="library" name="SBT: com.github.rwl:jtransforms:2.4.0:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.github.fommil.netlib:core:1.1.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: com.github.rwl:jtransforms:2.4.0:jar" level="project" />
     <orderEntry type="library" name="SBT: com.google.code.findbugs:jsr305:1.3.9:jar" level="project" />
     <orderEntry type="library" name="SBT: com.google.guava:guava:14.0.1:jar" level="project" />
     <orderEntry type="library" name="SBT: com.google.inject:guice:3.0:jar" level="project" />
@@ -59,7 +59,7 @@
     <orderEntry type="library" name="SBT: commons-beanutils:commons-beanutils-core:1.8.0:jar" level="project" />
     <orderEntry type="library" name="SBT: commons-cli:commons-cli:1.2:jar" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="SBT: commons-codec:commons-codec:1.4:jar" level="project" />
-    <orderEntry type="library" name="SBT: commons-codec:commons-codec:1.5:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: commons-codec:commons-codec:1.5:jar" level="project" />
     <orderEntry type="library" name="SBT: commons-collections:commons-collections:3.2.1:jar" level="project" />
     <orderEntry type="library" name="SBT: commons-configuration:commons-configuration:1.6:jar" level="project" />
     <orderEntry type="library" name="SBT: commons-digester:commons-digester:1.8:jar" level="project" />
@@ -110,8 +110,8 @@
     <orderEntry type="library" name="SBT: org.apache.mesos:mesos:0.21.0:shaded-protobuf:jar" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.spark:spark-catalyst_2.10:1.3.1:jar" level="project" />
     <orderEntry type="library" name="SBT: org.apache.spark:spark-core_2.10:1.3.1:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.apache.spark:spark-graphx_2.10:1.3.1:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.apache.spark:spark-mllib_2.10:1.3.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.spark:spark-graphx_2.10:1.3.1:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.spark:spark-mllib_2.10:1.3.1:jar" level="project" />
     <orderEntry type="library" name="SBT: org.apache.spark:spark-network-common_2.10:1.3.1:jar" level="project" />
     <orderEntry type="library" name="SBT: org.apache.spark:spark-network-shuffle_2.10:1.3.1:jar" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.apache.spark:spark-sql_2.10:1.3.1:jar" level="project" />
@@ -125,8 +125,8 @@
     <orderEntry type="library" name="SBT: org.codehaus.jackson:jackson-xc:1.8.8:jar" level="project" />
     <orderEntry type="library" name="SBT: org.codehaus.jettison:jettison:1.1:jar" level="project" />
     <orderEntry type="library" name="SBT: org.eclipse.jetty.orbit:javax.servlet:3.0.0.v201112011016:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.jblas:jblas:1.2.3:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.jodd:jodd-core:3.6.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.jblas:jblas:1.2.3:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.jodd:jodd-core:3.6.3:jar" level="project" />
     <orderEntry type="library" name="SBT: org.json4s:json4s-ast_2.10:3.2.10:jar" level="project" />
     <orderEntry type="library" name="SBT: org.json4s:json4s-core_2.10:3.2.10:jar" level="project" />
     <orderEntry type="library" name="SBT: org.json4s:json4s-jackson_2.10:3.2.10:jar" level="project" />
@@ -139,8 +139,9 @@
     <orderEntry type="library" name="SBT: org.scala-lang:scala-reflect:2.10.4:jar" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scalap:2.10.0:jar" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.scalamacros:quasiquotes_2.10:2.0.1:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.scalanlp:breeze-macros_2.10:0.11.2:jar" level="project" />
-    <orderEntry type="library" name="SBT: org.scalanlp:breeze_2.10:0.11.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.scalanlp:breeze-macros_2.10:0.11.2:jar" level="project" />
+    <orderEntry type="library" scope="PROVIDED" name="SBT: org.scalanlp:breeze_2.10:0.11.2:jar" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.scalatest:scalatest_2.10:2.0:jar" level="project" />
     <orderEntry type="library" name="SBT: org.slf4j:jcl-over-slf4j:1.7.10:jar" level="project" />
     <orderEntry type="library" name="SBT: org.slf4j:jul-to-slf4j:1.7.10:jar" level="project" />
     <orderEntry type="library" name="SBT: org.slf4j:slf4j-api:1.7.10:jar" level="project" />
@@ -162,14 +163,5 @@
     <orderEntry type="library" name="SBT: oro:oro:2.0.8:jar" level="project" />
     <orderEntry type="library" name="SBT: stax:stax-api:1.0.1:jar" level="project" />
     <orderEntry type="library" name="SBT: xmlenc:xmlenc:0.52:jar" level="project" />
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../../../../blas-0.8.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
   </component>
 </module>
