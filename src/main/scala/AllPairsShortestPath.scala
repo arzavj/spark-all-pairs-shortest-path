@@ -61,10 +61,9 @@ object AllPairsShortestPath {
     AMinPlusB
   }
 
-// Why mapValues doesn't work???
-  def blockMin(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)], ApspPartitioner: GridPartitioner): RDD[((Int, Int), Matrix)] = {
-    val addedBlocks = Ablocks.join(Bblocks, ApspPartitioner)
-      .mapValues {
+  def blockMin(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
+               ApspPartitioner: GridPartitioner): RDD[((Int, Int), Matrix)] = {
+    val addedBlocks = Ablocks.join(Bblocks, ApspPartitioner).mapValues {
       case (a, b) => fromBreeze(min(toBreeze(a), toBreeze(b)))
     }
     addedBlocks
@@ -86,60 +85,66 @@ object AllPairsShortestPath {
     }
     val newBlocks = flatA.join(flatB, ApspPartitioner)
       .map { case ((blockRowIndex, blockColIndex, _), (a, b)) =>
-      val C = localMinPlus(toBreeze(a), toBreeze(b))
-      ((blockRowIndex, blockColIndex), C)
-    }.reduceByKey(ApspPartitioner, (a, b) => min(a, b))
+        val C = localMinPlus(toBreeze(a), toBreeze(b))
+        ((blockRowIndex, blockColIndex), C)
+      }.reduceByKey(ApspPartitioner, (a, b) => min(a, b))
       .mapValues(C => fromBreeze(C))
     return newBlocks
   }
 
+  /**
+   *
+   * @param A nxn adjacency matrix represented as a BlockMatrix
+   * @param stepSize
+   * @param ApspPartitioner
+   * @return
+   */
   def distributedApsp(A: BlockMatrix, stepSize: Int, ApspPartitioner: GridPartitioner): BlockMatrix = {
-    require(A.nRows == A.nCols)
-    require(A.rowsPerBlock == A.colsPerBlock)
-    require(stepSize < A.rowsPerBlock)
-    val niter = math.ceil(A.nRows * 1.0 / stepSize).toInt
+    require(A.numRows() == A.numCols(), "The adjacency matrix must be square.")
+    require(A.rowsPerBlock == A.colsPerBlock, "The blocks making up the adjacency matrix must be square.")
+    require(stepSize < A.rowsPerBlock, "Step size must be less than number of rows in a block.")
+    val n = A.numRows()
+    val niter = math.ceil(n * 1.0 / stepSize).toInt
     var apspRDD = A.blocks
+    var rowRDD : RDD[((Int, Int), Matrix)] = null
+    var colRDD : RDD[((Int, Int), Matrix)] = null
     // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
-      val startBlock = i * stepSize / A.rowsPerBlock
-      val endBlock = min((i + 1) * stepSize - 1, A.nRows - 1) / A.rowsPerBlock
-      val startIndex = i * stepSize - startBlock * A.rowsPerBlock
-      val endIndex =  min((i + 1) * stepSize - 1, A.nRows - 1) - endBlock * A.rowsPerBlock
-      if (startBlock == endBlock) {
-        val rowRDD = apspRDD.filter(_._1._1 == startBlock)
-          .mapValues(localMat =>
-          fromBreeze(toBreeze(localMat)(startIndex to endIndex, ::)))
-        val colRDD  = apspRDD.filter(_._1._2 == startBlock)
-          .mapValues(localMat =>
-          fromBreeze(toBreeze(localMat)(::, startIndex to endIndex)))
+      val StartBlock = i * stepSize / A.rowsPerBlock
+      val EndBlock = math.min((i + 1) * stepSize - 1, n - 1) / A.rowsPerBlock
+      val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
+      val endIndex =  (math.min((i + 1) * stepSize - 1, n - 1) - EndBlock * A.rowsPerBlock).toInt
+      if (StartBlock == EndBlock) {
+        rowRDD = apspRDD.filter(_._1._1 == StartBlock)
+          .mapValues(localMat => fromBreeze(toBreeze(localMat)(startIndex to endIndex, ::)))
+        colRDD  = apspRDD.filter(_._1._2 == StartBlock)
+          .mapValues(localMat => fromBreeze(toBreeze(localMat)(::, startIndex to endIndex)))
       } else {
-        // we required startBlock >= endBlock - 1 at the beginning
-        val rowRDD = apspRDD.filter(_._1._1 == startBlock || _._1._1 == endBlock)
-          .map(case ((i, j), localMat) => i match {
-          case startBlock =>
-            ((i, j),
-              fromBreeze(toBreeze(localMat)(startIndex to localMat.numRows, ::)))
-          case endBlock =>
-            ((i, j),
-              fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
-        })
-        val colRDD = apspRDD.filter(_._1._2 == startBlock || _._1._2 == endBlock)
-          .map(case ((i, j), localMat) => j match {
-          case startBlock =>
-            ((i, j),
-              fromBreeze(toBreeze(localMat)(::, startIndex to localMat.numRows)))
-          case endBlock =>
-            ((i, j),
-              fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
-        })
+        // we required StartBlock >= EndBlock - 1 at the beginning
+        rowRDD = apspRDD.filter(kv => kv._1._1 == StartBlock || kv._1._1 == EndBlock)
+          .map { case ((i, j), localMat) =>
+            i match {
+              case StartBlock =>
+                ((i, j), fromBreeze(toBreeze(localMat)(startIndex to localMat.numRows, ::)))
+              case EndBlock =>
+                ((i, j), fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
+            }
+          }
+        colRDD = apspRDD.filter(kv => kv._1._2 == StartBlock || kv._1._2 == EndBlock)
+          .map { case ((i, j), localMat) =>
+            j match {
+              case StartBlock =>
+                ((i, j), fromBreeze(toBreeze(localMat)(::, startIndex to localMat.numRows)))
+              case EndBlock =>
+                ((i, j), fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
+            }
+          }
       }
 
-      apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, ApspPartitioner),
+      apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, ApspPartitioner),
         ApspPartitioner)
     }
-    val newMatrix = new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock,
-      A.nRows, A.nCols)
-    return newMatrix
+    return new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
   }
 }
 
