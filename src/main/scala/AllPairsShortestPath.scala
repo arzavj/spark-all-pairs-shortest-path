@@ -6,11 +6,16 @@ import org.apache.spark.rdd.RDD
 import breeze.linalg.{DenseMatrix => BDM, sum, DenseVector, min}
 import org.apache.spark.graphx._
 import org.apache.spark.graphx.util.GraphGenerators
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
 
 
 object AllPairsShortestPath {
 
   def main(args: Array[String]): Unit = {
+    Logger.getLogger("org").setLevel(Level.ERROR)
+    Logger.getLogger("akka").setLevel(Level.ERROR)
+
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
     val graph = generateGraph(12, sc)
@@ -186,6 +191,7 @@ object AllPairsShortestPath {
     var colRDD : RDD[((Int, Int), Matrix)] = null
     // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
+      apspRDD.foreach(println)
       val StartBlock = i * stepSize / A.rowsPerBlock
       val EndBlock = math.min((i + 1) * stepSize - 1, n - 1) / A.rowsPerBlock
       val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
