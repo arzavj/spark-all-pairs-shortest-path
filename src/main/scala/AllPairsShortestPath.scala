@@ -18,15 +18,15 @@ object AllPairsShortestPath {
 
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val graph = generateGraph(12, sc)
-    val matA = generateInput(graph, 12, sc, 6, 6)
+    val graph = generateGraph(7, sc)
+    val matA = generateInput(graph, 7, sc, 4, 4)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
 
 
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = distributedApsp(matA, 4, ApspPartitioner).toLocalMatrix
+    val resultMat = distributedApsp(matA, 3, ApspPartitioner).toLocalMatrix
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     println(matA.rowsPerBlock)
     println(localMat.toString)
@@ -126,7 +126,7 @@ object AllPairsShortestPath {
 
 
   def localMinPlus(A: BDM[Double], B: BDM[Double]): BDM[Double] = {
-    require(A.cols == B.rows, "Num rows of A does not match the num rows of B")
+    require(A.cols == B.rows, A.rows + " " + B.cols + " Num cols of A does not match the num rows of B")
     val k = A.cols
     val onesA = DenseVector.ones[Double](B.cols)
     val onesB = DenseVector.ones[Double](A.rows)
@@ -216,7 +216,7 @@ object AllPairsShortestPath {
           .map { case ((i, j), localMat) =>
             j match {
               case StartBlock =>
-                ((i, j), fromBreeze(toBreeze(localMat)(::, startIndex until localMat.numRows)))
+                ((i, j), fromBreeze(toBreeze(localMat)(::, startIndex until localMat.numCols)))
               case EndBlock =>
                 ((i, j), fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
             }
