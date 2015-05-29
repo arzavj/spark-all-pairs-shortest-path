@@ -43,7 +43,7 @@ object AllPairsShortestPath {
   def addInfinity(A: SparseMatrix, rowBlockID: Int, colBlockID: Int): Matrix = {
     val inf = scala.Double.PositiveInfinity
     val result: BDM[Double] = BDM.tabulate(A.numRows, A.numCols){case (i, j) => inf}
-    for (j <- 0 to A.values.length)
+    for (j <- 0 until A.values.length)
         for (i <- 0 until A.numCols) {
           if (j >= A.colPtrs(i) & j < A.colPtrs(i + 1))
             result(A.rowIndices(j), i) = A.values(j)
