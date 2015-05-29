@@ -170,7 +170,7 @@
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.spire-math:spire_2.10:0.7.4:provided" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.spire-math:spire-macros_2.10:0.7.4:provided" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: org.scalatest:scalatest_2.10:2.0:test" level="project" />
-    <orderEntry type="library" name="scala-sdk-2.10.4" level="application" />
+    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4:jar" level="project" />
     <orderEntry type="module-library">
       <library>
         <CLASSES>

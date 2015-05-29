@@ -3,7 +3,9 @@ import org.apache.spark.SparkConf
 import org.apache.spark.mllib.linalg.{SparseMatrix, DenseMatrix, Matrix}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry, BlockMatrix}
 import org.apache.spark.rdd.RDD
-import breeze.linalg.{DenseMatrix => BDM, DenseVector, min, Matrix =>BM}
+import breeze.linalg.{DenseMatrix => BDM, sum, DenseVector, min}
+import org.apache.spark.graphx._
+import org.apache.spark.graphx.util.GraphGenerators
 
 
 object AllPairsShortestPath {
@@ -11,32 +13,49 @@ object AllPairsShortestPath {
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val entries = sc.parallelize(Array(
-      (0, 1, 20), (0, 2, 4), (0, 3, 2),
-      (1, 0, 2), (1, 2, 1), (1, 3, 3),(2, 0, 1),
-      (2, 1, 6), (2, 3, 5), (3, 0, 4), (3, 1, 2), (3, 2, 2))).map{case (i, j, v) => MatrixEntry(i, j, v)}
-    val coordMat = new CoordinateMatrix(entries)
-    val matA = coordMat.toBlockMatrix(2, 2).cache()
+    val graph = generateGraph(10, sc)
+    val matA = generateInput(graph, 10, sc, 2, 2)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
-    matA.validate()
+
+
+
     val localMat = matA.toLocalMatrix()
-    println(localMat.toString())
-    println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
-//    val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
-//    blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
+    val resultMat = distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix
+   // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
+    println(localMat.toString)
+    println(resultMat.toString)
+   // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
+   // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
     System.exit(0)
   }
+
+
+  /**
+   *  add infinity to missing off diagonal elements and 0 to diagonal elements
+   */
+  def addInfinity(A: SparseMatrix, rowBlockID: Int, colBlockID: Int): Matrix = {
+    val inf = scala.Double.PositiveInfinity
+    val result: BDM[Double] = BDM.tabulate(A.numRows, A.numCols){case (i, j) => inf}
+    for (j <- 0 to A.values.length)
+        for (i <- 0 until A.numCols) {
+          if (j >= A.colPtrs(i) & j < A.colPtrs(i + 1))
+            result(A.rowIndices(j), i) = A.values(j)
+        }
+    if (rowBlockID == colBlockID) {
+      require(A.numCols == A.numRows, "Diagonal block should have a square matrix")
+      for (i <- 0 until A.numCols)
+        result(i, i) = 0.0
+    }
+    fromBreeze(result)
+  }
+
 
   /**
    * Convert a local matrix into a dense breeze matrix.
    * TODO: use breeze sparse matrix if local matrix is sparse
    */
   def toBreeze(A: Matrix): BDM[Double] = {
-    val denseMat = A match {
-      case dense: DenseMatrix => dense
-      case sparse: SparseMatrix => sparse.toDense
-    }
-    new BDM[Double](denseMat.numRows, denseMat.numCols, denseMat.toArray)
+    new BDM[Double](A.numRows, A.numCols, A.toArray)
   }
 
   /**
@@ -46,13 +65,67 @@ object AllPairsShortestPath {
     new DenseMatrix(dm.rows, dm.cols, dm.toArray, dm.isTranspose)
   }
 
+  def generateGraph(n: Int, sc: SparkContext): Graph[Long, Double] = {
+    val graph = GraphGenerators.logNormalGraph(sc, n).mapEdges(e => e.attr.toDouble)
+    graph
+  }
+
+  def generateInput(graph: Graph[Long,Double], n: Int, sc:SparkContext,
+                    numRowBlocks: Int, numColBlocks: Int): BlockMatrix = {
+    require(numRowBlocks == numColBlocks, "need a square grid partition")
+    val entries = graph.edges.map{case edge => MatrixEntry(edge.srcId.toInt, edge.dstId.toInt, edge.attr)}
+    val coordMat = new CoordinateMatrix(entries, n, n)
+    val matA = coordMat.toBlockMatrix(numRowBlocks, numRowBlocks)
+    val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
+    require(matA.numColBlocks == matA.numRowBlocks)
+
+    // make sure that all block indices appears in the matrix blocks
+    // add the blocks that are not represented
+    val activeBlocks: BDM[Int] = BDM.tabulate(matA.numRowBlocks, matA.numColBlocks){case (i, j) => 0}
+    matA.blocks.foreach{case ((i, j), v) => activeBlocks(i, j)= 1}
+    val nAddedBlocks = matA.numRowBlocks * matA.numColBlocks - sum(activeBlocks)
+    // recognize which blocks need to be added
+    val addedBlocksIdx = Array.range(0, nAddedBlocks).map(i => (0, i))
+    var index = 0
+    for (i <- 0 until matA.numRowBlocks)
+      for (j <- 0 until matA.numColBlocks) {
+        if (activeBlocks(i, j) == 0) {
+          addedBlocksIdx(index) = (i, j)
+          index = index + 1
+        }
+      }
+    // Create empty blocks with just the non-represented block indices
+    val addedBlocks = sc.parallelize(addedBlocksIdx).map{case (i, j) => {
+      var nRows = matA.rowsPerBlock
+      var nCols = matA.colsPerBlock
+      if (i == matA.numRowBlocks - 1) nRows = matA.numRows().toInt - nRows * (matA.numRowBlocks - 1)
+      if (j == matA.numColBlocks - 1) nCols = matA.numCols().toInt - nCols * (matA.numColBlocks - 1)
+      val newMat: Matrix = new SparseMatrix(nRows, nCols, BDM.tabulate(1, nCols + 1){case (i, j) => 0}.toArray,
+                                    Array[Int](), Array[Double]())
+      ((i, j), newMat)
+    }}
+    val initialBlocks = addedBlocks.union(matA.blocks).partitionBy(ApspPartitioner)
+
+
+    val blocks: RDD[((Int, Int), Matrix)] = initialBlocks.map{case ((i, j), v) => {
+      val converted = v match {
+        case dense: DenseMatrix => dense
+        case sparse: SparseMatrix => addInfinity(sparse, i, j)
+      }
+      ((i, j),converted)
+    }}
+    new BlockMatrix(blocks, matA.rowsPerBlock, matA.colsPerBlock, n, n)
+  }
+
+
   def localMinPlus(A: BDM[Double], B: BDM[Double]): BDM[Double] = {
     require(A.cols == B.rows, "Num rows of A does not match the num rows of B")
     val k = A.cols
-    val onesA = DenseVector.ones[Double](A.rows)
-    val onesB = DenseVector.ones[Double](B.cols)
+    val onesA = DenseVector.ones[Double](B.cols)
+    val onesB = DenseVector.ones[Double](A.rows)
     var AMinPlusB = A(::, 0) * onesA.t + onesB * B(0, ::)
-    for (i <- 1 to (k-1)) {
+    if (k > 1)
+     for (i <- 1 to (k-1)) {
       val a = A(::, i)
       val b = B(i, ::)
       val aPlusb = a * onesA.t + onesB * b
@@ -102,7 +175,7 @@ object AllPairsShortestPath {
   def distributedApsp(A: BlockMatrix, stepSize: Int, ApspPartitioner: GridPartitioner): BlockMatrix = {
     require(A.numRows() == A.numCols(), "The adjacency matrix must be square.")
     require(A.rowsPerBlock == A.colsPerBlock, "The blocks making up the adjacency matrix must be square.")
-    require(stepSize < A.rowsPerBlock, "Step size must be less than number of rows in a block.")
+    require(stepSize <= A.rowsPerBlock, "Step size must be less than number of rows in a block.")
     val n = A.numRows()
     val niter = math.ceil(n * 1.0 / stepSize).toInt
     var apspRDD = A.blocks
@@ -144,7 +217,8 @@ object AllPairsShortestPath {
       apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, ApspPartitioner),
         ApspPartitioner)
     }
-    return new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
+    new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
   }
 }
+
 
