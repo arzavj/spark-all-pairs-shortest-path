@@ -1,16 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="JAVA_MODULE" version="4">
-  <component name="FacetManager">
-    <facet type="scala" name="Scala">
-      <configuration>
-        <option name="compilerLibraryLevel" value="Project" />
-        <option name="compilerLibraryName" value="SBT: scala:2.10.4" />
-        <option name="languageLevel" value="Scala 2.10" />
-        <option name="fsc" value="true" />
-        <option name="compilerOptions" value="" />
-      </configuration>
-    </facet>
-  </component>
+  <component name="FacetManager" />
   <component name="NewModuleRootManager" inherit-compiler-output="false">
     <output url="file://$MODULE_DIR$/../target/scala-2.10/classes" />
     <output-test url="file://$MODULE_DIR$/../target/scala-2.10/test-classes" />
@@ -27,7 +17,6 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4" level="project" />
     <orderEntry type="library" name="SBT: org.apache.spark:spark-core_2.10:1.3.1" level="project" />
     <orderEntry type="library" name="SBT: com.twitter:chill_2.10:0.5.0" level="project" />
     <orderEntry type="library" name="SBT: com.twitter:chill-java:0.5.0" level="project" />
@@ -170,7 +159,7 @@
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.spire-math:spire_2.10:0.7.4:provided" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="SBT: org.spire-math:spire-macros_2.10:0.7.4:provided" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: org.scalatest:scalatest_2.10:2.0:test" level="project" />
-    <orderEntry type="library" name="scala-sdk-2.10.4" level="application" />
+    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4:jar" level="project" />
     <orderEntry type="module-library">
       <library>
         <CLASSES>
@@ -180,5 +169,7 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4" level="project" />
   </component>
 </module>
+

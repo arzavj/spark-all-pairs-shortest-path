@@ -8,7 +8,10 @@ class APSPSpec extends FlatSpec {
 
   def fixture = {
     new {
-      val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
+      val conf = new SparkConf()
+        .setAppName("AllPairsShortestPath")
+        .setMaster("local[4]")
+        .set("spark.driver.allowMultipleContexts", "true")
       val sc = new SparkContext(conf)
     }
   }
@@ -33,11 +36,13 @@ class APSPSpec extends FlatSpec {
   }
 
   it should "match our APSP matrix" in {
-    assert(toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner).toLocalMatrix()) === BDM(
+    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner).toLocalMatrix())
+    val expected = BDM(
       (0.0, 4.0, 4.0, 2.0),
       (2.0, 0.0, 1.0, 3.0),
       (1.0, 5.0, 0.0, 3.0),
       (3.0, 2.0, 2.0, 0.0)
-    ))
+    )
+    assert(observed === expected)
   }
 }
