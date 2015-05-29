@@ -18,18 +18,18 @@ object AllPairsShortestPath {
 
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val graph = generateGraph(7, sc)
-    val matA = generateInput(graph, 7, sc, 4, 4)
+    val graph = generateGraph(60, sc)
+    val matA = generateInput(graph, 60, sc, 30, 30)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
 
 
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = distributedApsp(matA, 3, ApspPartitioner).toLocalMatrix
+    val resultMat = distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
-    println(matA.rowsPerBlock)
-    println(localMat.toString)
+    //println(matA.rowsPerBlock)
+    //println(localMat.toString)
     println(resultMat.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
    // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
@@ -78,11 +78,11 @@ object AllPairsShortestPath {
   }
 
   def generateInput(graph: Graph[Long,Double], n: Int, sc:SparkContext,
-                    numRowBlocks: Int, numColBlocks: Int): BlockMatrix = {
-    require(numRowBlocks == numColBlocks, "need a square grid partition")
+                    RowsPerBlock: Int, ColsPerBlock: Int): BlockMatrix = {
+    require(RowsPerBlock == ColsPerBlock, "need a square grid partition")
     val entries = graph.edges.map{case edge => MatrixEntry(edge.srcId.toInt, edge.dstId.toInt, edge.attr)}
     val coordMat = new CoordinateMatrix(entries, n, n)
-    val matA = coordMat.toBlockMatrix(numRowBlocks, numRowBlocks)
+    val matA = coordMat.toBlockMatrix(RowsPerBlock, ColsPerBlock)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
     require(matA.numColBlocks == matA.numRowBlocks)
 
