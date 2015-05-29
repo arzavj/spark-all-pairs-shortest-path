@@ -191,7 +191,6 @@ object AllPairsShortestPath {
     var colRDD : RDD[((Int, Int), Matrix)] = null
     // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
-      apspRDD.foreach(println)
       val StartBlock = i * stepSize / A.rowsPerBlock
       val EndBlock = math.min((i + 1) * stepSize - 1, n - 1) / A.rowsPerBlock
       val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
