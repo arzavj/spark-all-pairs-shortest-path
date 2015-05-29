@@ -13,15 +13,17 @@ object AllPairsShortestPath {
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val graph = generateGraph(10, sc)
-    val matA = generateInput(graph, 10, sc, 2, 2)
+    val graph = generateGraph(12, sc)
+    val matA = generateInput(graph, 12, sc, 6, 6)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
 
 
+
     val localMat = matA.toLocalMatrix()
-    val resultMat = distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix
+    val resultMat = distributedApsp(matA, 4, ApspPartitioner).toLocalMatrix
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
+    println(matA.rowsPerBlock)
     println(localMat.toString)
     println(resultMat.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
@@ -198,7 +200,7 @@ object AllPairsShortestPath {
           .map { case ((i, j), localMat) =>
             i match {
               case StartBlock =>
-                ((i, j), fromBreeze(toBreeze(localMat)(startIndex to localMat.numRows, ::)))
+                ((i, j), fromBreeze(toBreeze(localMat)(startIndex until localMat.numRows, ::)))
               case EndBlock =>
                 ((i, j), fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
             }
@@ -207,7 +209,7 @@ object AllPairsShortestPath {
           .map { case ((i, j), localMat) =>
             j match {
               case StartBlock =>
-                ((i, j), fromBreeze(toBreeze(localMat)(::, startIndex to localMat.numRows)))
+                ((i, j), fromBreeze(toBreeze(localMat)(::, startIndex until localMat.numRows)))
               case EndBlock =>
                 ((i, j), fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
             }
