@@ -18,23 +18,35 @@ object AllPairsShortestPath {
 
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val graph = generateGraph(60, sc)
-    val matA = generateInput(graph, 60, sc, 30, 30)
+    val n = 200
+    val m = 100
+    val graph = generateGraph(n, sc)
+    val matA = generateInput(graph, n, sc, m, m)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
 
 
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix
+    val resultMat = time{distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix}
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     //println(matA.rowsPerBlock)
     //println(localMat.toString)
-    println(resultMat.toString)
+  //  println(resultMat.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
    // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
     System.exit(0)
   }
+
+
+  def time[R](block: => R): R = {
+    val t0 = System.nanoTime()
+    val result = block    // call-by-name
+    val t1 = System.nanoTime()
+    println("Elapsed time: " + (t1 - t0) + "ns")
+    result
+  }
+
 
 
   /**
@@ -89,7 +101,9 @@ object AllPairsShortestPath {
     // make sure that all block indices appears in the matrix blocks
     // add the blocks that are not represented
     val activeBlocks: BDM[Int] = BDM.tabulate(matA.numRowBlocks, matA.numColBlocks){case (i, j) => 0}
-    matA.blocks.foreach{case ((i, j), v) => activeBlocks(i, j)= 1}
+    //matA.blocks.foreach{case ((i, j), v) => activeBlocks(i, j)= 1}
+    val activeIdx = matA.blocks.map{case ((i, j), v) => (i, j)}.collect()
+    activeIdx.foreach{case (i, j) => activeBlocks(i, j) = 1}
     val nAddedBlocks = matA.numRowBlocks * matA.numColBlocks - sum(activeBlocks)
     // recognize which blocks need to be added
     val addedBlocksIdx = Array.range(0, nAddedBlocks).map(i => (0, i))
@@ -191,6 +205,8 @@ object AllPairsShortestPath {
     var colRDD : RDD[((Int, Int), Matrix)] = null
     // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
+      //if (i % 20 == 0)
+      apspRDD.count()
       val StartBlock = i * stepSize / A.rowsPerBlock
       val EndBlock = math.min((i + 1) * stepSize - 1, n - 1) / A.rowsPerBlock
       val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
