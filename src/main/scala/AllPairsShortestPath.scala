@@ -9,6 +9,8 @@ import org.apache.spark.graphx.util.GraphGenerators
 import org.apache.log4j.Logger
 import org.apache.log4j.Level
 
+import scala.concurrent.duration._
+
 
 object AllPairsShortestPath {
 
@@ -18,8 +20,9 @@ object AllPairsShortestPath {
 
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val n = 200
-    val m = 100
+    sc.setCheckpointDir("checkpoint/")
+    val n = 900
+    val m = 450
     val graph = generateGraph(n, sc)
     val matA = generateInput(graph, n, sc, m, m)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
@@ -28,11 +31,12 @@ object AllPairsShortestPath {
 
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = time{distributedApsp(matA, 1, ApspPartitioner).toLocalMatrix}
+    val resultMat = time{distributedApsp(matA, 1, ApspPartitioner)}
+    val resultLocalMat = resultMat.toLocalMatrix()
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
-    //println(matA.rowsPerBlock)
+    //println(matA.toLocalMatrix().toString())
     //println(localMat.toString)
-  //  println(resultMat.toString)
+    //println(resultLocalMat.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
    // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
     System.exit(0)
@@ -43,7 +47,9 @@ object AllPairsShortestPath {
     val t0 = System.nanoTime()
     val result = block    // call-by-name
     val t1 = System.nanoTime()
-    println("Elapsed time: " + (t1 - t0) + "ns")
+    val duration = Duration(t1 - t0, NANOSECONDS)
+    println("Elapsed time: " + duration.toMinutes + " minutes " +
+      (duration.toSeconds - duration.toMinutes * 60) + " seconds" )
     result
   }
 
@@ -205,8 +211,10 @@ object AllPairsShortestPath {
     var colRDD : RDD[((Int, Int), Matrix)] = null
     // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
-      //if (i % 20 == 0)
-      apspRDD.count()
+      if (i % 20 == 0) {
+        apspRDD.checkpoint()
+        apspRDD.count()
+      }
       val StartBlock = i * stepSize / A.rowsPerBlock
       val EndBlock = math.min((i + 1) * stepSize - 1, n - 1) / A.rowsPerBlock
       val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
