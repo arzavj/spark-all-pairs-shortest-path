@@ -21,8 +21,8 @@ object AllPairsShortestPath {
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
     sc.setCheckpointDir("checkpoint/")
-    val n = 900
-    val m = 450
+    val n = 200
+    val m = 100
     val graph = generateGraph(n, sc)
     val matA = generateInput(graph, n, sc, m, m)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
@@ -31,12 +31,17 @@ object AllPairsShortestPath {
 
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = time{distributedApsp(matA, 1, ApspPartitioner)}
+    val resultMat = time{distributedApsp(matA, 200, ApspPartitioner, sc)}
+    //val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, sc)}
     val resultLocalMat = resultMat.toLocalMatrix()
+    //val resultLocalMat1 = resultMat1.toLocalMatrix()
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     //println(matA.toLocalMatrix().toString())
-    //println(localMat.toString)
+   // println(localMat.toString)
+
     //println(resultLocalMat.toString)
+    //println()
+    //println(resultLocalMat1.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
    // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
     System.exit(0)
@@ -53,6 +58,11 @@ object AllPairsShortestPath {
     result
   }
 
+
+  def generateGraph(n: Int, sc: SparkContext): Graph[Long, Double] = {
+    val graph = GraphGenerators.logNormalGraph(sc, n).mapEdges(e => e.attr.toDouble)
+    graph
+  }
 
 
   /**
@@ -75,6 +85,59 @@ object AllPairsShortestPath {
   }
 
 
+  def generateInput(graph: Graph[Long,Double], n: Int, sc:SparkContext,
+                    RowsPerBlock: Int, ColsPerBlock: Int): BlockMatrix = {
+    require(RowsPerBlock == ColsPerBlock, "need a square grid partition")
+    val entries = graph.edges.map { case edge => MatrixEntry(edge.srcId.toInt, edge.dstId.toInt, edge.attr) }
+    val coordMat = new CoordinateMatrix(entries, n, n)
+    val matA = coordMat.toBlockMatrix(RowsPerBlock, ColsPerBlock)
+    val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
+    require(matA.numColBlocks == matA.numRowBlocks)
+
+    // make sure that all block indices appears in the matrix blocks
+    // add the blocks that are not represented
+    val activeBlocks: BDM[Int] = BDM.zeros[Int](matA.numRowBlocks, matA.numColBlocks)
+    //matA.blocks.foreach{case ((i, j), v) => activeBlocks(i, j)= 1}
+    val activeIdx = matA.blocks.map { case ((i, j), v) => (i, j) }.collect()
+    activeIdx.foreach { case (i, j) => activeBlocks(i, j) = 1 }
+    val nAddedBlocks = matA.numRowBlocks * matA.numColBlocks - sum(activeBlocks)
+    // recognize which blocks need to be added
+    val addedBlocksIdx = Array.range(0, nAddedBlocks).map(i => (0, i))
+    var index = 0
+    for (i <- 0 until matA.numRowBlocks)
+      for (j <- 0 until matA.numColBlocks) {
+        if (activeBlocks(i, j) == 0) {
+          addedBlocksIdx(index) = (i, j)
+          index = index + 1
+        }
+      }
+    // Create empty blocks with just the non-represented block indices
+    val addedBlocks = sc.parallelize(addedBlocksIdx).map { case (i, j) => {
+      var nRows = matA.rowsPerBlock
+      var nCols = matA.colsPerBlock
+      if (i == matA.numRowBlocks - 1) nRows = matA.numRows().toInt - nRows * (matA.numRowBlocks - 1)
+      if (j == matA.numColBlocks - 1) nCols = matA.numCols().toInt - nCols * (matA.numColBlocks - 1)
+      val newMat: Matrix = new SparseMatrix(nRows, nCols, BDM.zeros[Int](1, nCols + 1).toArray,
+        Array[Int](), Array[Double]())
+      ((i, j), newMat)
+    }
+    }
+    val initialBlocks = addedBlocks.union(matA.blocks).partitionBy(ApspPartitioner)
+
+
+    val blocks: RDD[((Int, Int), Matrix)] = initialBlocks.map { case ((i, j), v) => {
+      val converted = v match {
+        case dense: DenseMatrix => dense
+        case sparse: SparseMatrix => addInfinity(sparse, i, j)
+      }
+      ((i, j), converted)
+    }
+    }
+    new BlockMatrix(blocks, matA.rowsPerBlock, matA.colsPerBlock, n, n)
+  }
+
+
+
   /**
    * Convert a local matrix into a dense breeze matrix.
    * TODO: use breeze sparse matrix if local matrix is sparse
@@ -90,69 +153,17 @@ object AllPairsShortestPath {
     new DenseMatrix(dm.rows, dm.cols, dm.toArray, dm.isTranspose)
   }
 
-  def generateGraph(n: Int, sc: SparkContext): Graph[Long, Double] = {
-    val graph = GraphGenerators.logNormalGraph(sc, n).mapEdges(e => e.attr.toDouble)
-    graph
-  }
 
-  def generateInput(graph: Graph[Long,Double], n: Int, sc:SparkContext,
-                    RowsPerBlock: Int, ColsPerBlock: Int): BlockMatrix = {
-    require(RowsPerBlock == ColsPerBlock, "need a square grid partition")
-    val entries = graph.edges.map{case edge => MatrixEntry(edge.srcId.toInt, edge.dstId.toInt, edge.attr)}
-    val coordMat = new CoordinateMatrix(entries, n, n)
-    val matA = coordMat.toBlockMatrix(RowsPerBlock, ColsPerBlock)
-    val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
-    require(matA.numColBlocks == matA.numRowBlocks)
-
-    // make sure that all block indices appears in the matrix blocks
-    // add the blocks that are not represented
-    val activeBlocks: BDM[Int] = BDM.tabulate(matA.numRowBlocks, matA.numColBlocks){case (i, j) => 0}
-    //matA.blocks.foreach{case ((i, j), v) => activeBlocks(i, j)= 1}
-    val activeIdx = matA.blocks.map{case ((i, j), v) => (i, j)}.collect()
-    activeIdx.foreach{case (i, j) => activeBlocks(i, j) = 1}
-    val nAddedBlocks = matA.numRowBlocks * matA.numColBlocks - sum(activeBlocks)
-    // recognize which blocks need to be added
-    val addedBlocksIdx = Array.range(0, nAddedBlocks).map(i => (0, i))
-    var index = 0
-    for (i <- 0 until matA.numRowBlocks)
-      for (j <- 0 until matA.numColBlocks) {
-        if (activeBlocks(i, j) == 0) {
-          addedBlocksIdx(index) = (i, j)
-          index = index + 1
-        }
-      }
-    // Create empty blocks with just the non-represented block indices
-    val addedBlocks = sc.parallelize(addedBlocksIdx).map{case (i, j) => {
-      var nRows = matA.rowsPerBlock
-      var nCols = matA.colsPerBlock
-      if (i == matA.numRowBlocks - 1) nRows = matA.numRows().toInt - nRows * (matA.numRowBlocks - 1)
-      if (j == matA.numColBlocks - 1) nCols = matA.numCols().toInt - nCols * (matA.numColBlocks - 1)
-      val newMat: Matrix = new SparseMatrix(nRows, nCols, BDM.tabulate(1, nCols + 1){case (i, j) => 0}.toArray,
-                                    Array[Int](), Array[Double]())
-      ((i, j), newMat)
-    }}
-    val initialBlocks = addedBlocks.union(matA.blocks).partitionBy(ApspPartitioner)
-
-
-    val blocks: RDD[((Int, Int), Matrix)] = initialBlocks.map{case ((i, j), v) => {
-      val converted = v match {
-        case dense: DenseMatrix => dense
-        case sparse: SparseMatrix => addInfinity(sparse, i, j)
-      }
-      ((i, j),converted)
-    }}
-    new BlockMatrix(blocks, matA.rowsPerBlock, matA.colsPerBlock, n, n)
-  }
 
 
   def localMinPlus(A: BDM[Double], B: BDM[Double]): BDM[Double] = {
-    require(A.cols == B.rows, A.rows + " " + B.cols + " Num cols of A does not match the num rows of B")
+    require(A.cols == B.rows, " Num cols of A does not match the num rows of B")
     val k = A.cols
     val onesA = DenseVector.ones[Double](B.cols)
     val onesB = DenseVector.ones[Double](A.rows)
     var AMinPlusB = A(::, 0) * onesA.t + onesB * B(0, ::)
     if (k > 1) {
-      for (i <- 1 to (k - 1)) {
+      for (i <- 1 until k) {
         val a = A(::, i)
         val b = B(i, ::)
         val aPlusb = a * onesA.t + onesB * b
@@ -160,6 +171,21 @@ object AllPairsShortestPath {
       }
     }
     AMinPlusB
+  }
+
+  /**
+   * Calculate APSP for a local square matrix
+   */
+  def localFW(A: BDM[Double]): BDM[Double] = {
+    require(A.rows == A.cols, "Matrix for localFW should be square!")
+    var B = A
+    val onesA = DenseVector.ones[Double](A.rows)
+    for (i <- 0 until A.rows) {
+      val a = B(::, i)
+      val b = B(i, ::)
+      B = min(B, a * onesA.t + onesA * b)
+    }
+    B
   }
 
   def blockMin(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
@@ -200,16 +226,17 @@ object AllPairsShortestPath {
    * @param ApspPartitioner
    * @return
    */
-  def distributedApsp(A: BlockMatrix, stepSize: Int, ApspPartitioner: GridPartitioner): BlockMatrix = {
+  def distributedApsp(A: BlockMatrix, stepSize: Int, ApspPartitioner: GridPartitioner,
+                      sc: SparkContext): BlockMatrix = {
     require(A.numRows() == A.numCols(), "The adjacency matrix must be square.")
-    require(A.rowsPerBlock == A.colsPerBlock, "The blocks making up the adjacency matrix must be square.")
+    //require(A.rowsPerBlock == A.colsPerBlock, "The matrix must be square.")
+    require(A.numRowBlocks == A.numColBlocks, "The blocks making up the adjacency matrix must be square.")
     require(stepSize <= A.rowsPerBlock, "Step size must be less than number of rows in a block.")
     val n = A.numRows()
     val niter = math.ceil(n * 1.0 / stepSize).toInt
     var apspRDD = A.blocks
     var rowRDD : RDD[((Int, Int), Matrix)] = null
     var colRDD : RDD[((Int, Int), Matrix)] = null
-    // TODO: shuffle the data first if stepSize > 1
     for (i <- 0 to (niter - 1)) {
       if (i % 20 == 0) {
         apspRDD.checkpoint()
@@ -220,13 +247,55 @@ object AllPairsShortestPath {
       val startIndex = i * stepSize - StartBlock * A.rowsPerBlock
       val endIndex =  (math.min((i + 1) * stepSize - 1, n - 1) - EndBlock * A.rowsPerBlock).toInt
       if (StartBlock == EndBlock) {
+        // Calculate the APSP of the square matrix
+        val squareMat = apspRDD.filter(kv => (kv._1._1 == StartBlock) && (kv._1._2 == StartBlock))
+          .mapValues(localMat => fromBreeze(localFW(toBreeze(localMat)(startIndex to endIndex, startIndex to endIndex))))
+          .first._2
+        val x = sc.broadcast(squareMat)
+        // the rowRDD updated by squareMat
         rowRDD = apspRDD.filter(_._1._1 == StartBlock)
-          .mapValues(localMat => fromBreeze(toBreeze(localMat)(startIndex to endIndex, ::)))
+          .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(x.value),
+                                                         toBreeze(localMat)(startIndex to endIndex, ::))))
+        // the colRDD updated by squareMat
         colRDD  = apspRDD.filter(_._1._2 == StartBlock)
-          .mapValues(localMat => fromBreeze(toBreeze(localMat)(::, startIndex to endIndex)))
+          .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(localMat)(::, startIndex to endIndex),
+                                                         toBreeze(x.value))))
       } else {
-        // we required StartBlock >= EndBlock - 1 at the beginning
-        rowRDD = apspRDD.filter(kv => kv._1._1 == StartBlock || kv._1._1 == EndBlock)
+        // this is the case when the filtered slice doesn't fall into one block
+        // we required StartBlock >= EndBlock - 1
+        // current implementation involves very complicated operations (should be simplified)!!!
+        // also need to deal with the case that the actual slice size might be smaller (for the end slice)
+        val squareMatArray = apspRDD.filter(kv => (kv._1._1 == StartBlock || kv._1._1 == EndBlock)
+                                              && (kv._1._2 == StartBlock || kv._1._2 == EndBlock))
+          .map { case ((i, j), localMat) =>
+          (i, j) match {
+            case (StartBlock, StartBlock) =>
+              ((i, j), fromBreeze(toBreeze(localMat)(startIndex until localMat.numRows, startIndex until localMat.numCols)))
+            case (StartBlock, EndBlock) =>
+              ((i, j), fromBreeze(toBreeze(localMat)(startIndex until localMat.numRows, 0 to endIndex)))
+            case (EndBlock, StartBlock) =>
+              ((i, j), fromBreeze(toBreeze(localMat)(0 to endIndex, startIndex until localMat.numCols)))
+            case (EndBlock, EndBlock) =>
+              ((i, j), fromBreeze(toBreeze(localMat)(0 to endIndex, 0 to endIndex)))
+            }
+          }.collect()
+
+        // calculate the actual square matrix size
+        val size1 = squareMatArray.filter(_._1 == (StartBlock, EndBlock))(0)._2.numRows
+        val size2 = squareMatArray.filter(_._1 == (StartBlock, EndBlock))(0)._2.numCols
+        // covert the square matrix Array to a local BDM matrix
+        val tempMat = BDM.zeros[Double](size1 + size2, size1 + size2)
+
+        squareMatArray.foreach{case ((i, j), v) =>
+          tempMat((size1 * (i - StartBlock)) until (size1 + size2 * (i - StartBlock)),
+                  (size1 * (j - StartBlock)) until (size1 + size2 * (j - StartBlock))) := toBreeze(v)}
+        val squareMat = localFW(tempMat)
+        // convert the local BDM matrix back to a square matrix RDD
+        val squareMatRDD = sc.parallelize(squareMatArray.map{case ((i, j), v) =>
+          ((i, j), fromBreeze(squareMat((size1 * (i - StartBlock)) until (size1 + size2 * (i - StartBlock)),
+                                        (size1 * (j - StartBlock)) until (size1 + size2 * (j - StartBlock)))))})
+
+        rowRDD = blockMinPlus(squareMatRDD, apspRDD.filter(kv => kv._1._1 == StartBlock || kv._1._1 == EndBlock)
           .map { case ((i, j), localMat) =>
             i match {
               case StartBlock =>
@@ -234,8 +303,8 @@ object AllPairsShortestPath {
               case EndBlock =>
                 ((i, j), fromBreeze(toBreeze(localMat)(0 to endIndex, ::)))
             }
-          }
-        colRDD = apspRDD.filter(kv => kv._1._2 == StartBlock || kv._1._2 == EndBlock)
+          }, 2, A.numColBlocks, ApspPartitioner)
+        colRDD = blockMinPlus(apspRDD.filter(kv => kv._1._2 == StartBlock || kv._1._2 == EndBlock)
           .map { case ((i, j), localMat) =>
             j match {
               case StartBlock =>
@@ -243,7 +312,8 @@ object AllPairsShortestPath {
               case EndBlock =>
                 ((i, j), fromBreeze(toBreeze(localMat)(::, 0 to endIndex)))
             }
-          }
+          }, squareMatRDD, A.numRowBlocks, 2, ApspPartitioner)
+
       }
 
       apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, ApspPartitioner),
