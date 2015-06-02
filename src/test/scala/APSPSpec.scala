@@ -1,7 +1,7 @@
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{SparkContext, SparkConf}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
-import org.scalatest.{FlatSpec}
+import org.scalatest.{Outcome, FlatSpec}
 import AllPairsShortestPath._
 import breeze.linalg.{DenseMatrix => BDM}
 
@@ -10,7 +10,7 @@ class APSPSpec extends FlatSpec {
   val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]").set("spark.driver.allowMultipleContexts", "true")
   val sc = new SparkContext(conf)
 
-  override def withFixture(test: NoArgTest) {
+  override def withFixture(test: NoArgTest) : Outcome = {
     Logger.getLogger("org").setLevel(Level.ERROR)
     Logger.getLogger("akka").setLevel(Level.ERROR)
     try {
@@ -38,8 +38,7 @@ class APSPSpec extends FlatSpec {
 
   it should "match our APSP matrix" in {
     println(fourByFourBlockMatrx.toLocalMatrix())
-    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner).toLocalMatrix())
-    println(observed)
+    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner, sc).toLocalMatrix())
     val expected = BDM(
       (0.0, 4.0, 4.0, 2.0),
       (2.0, 0.0, 1.0, 3.0),
