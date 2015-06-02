@@ -15,23 +15,22 @@ import scala.concurrent.duration._
 object AllPairsShortestPath {
 
   def main(args: Array[String]): Unit = {
+    println(args.mkString(", "))
     Logger.getLogger("org").setLevel(Level.ERROR)
     Logger.getLogger("akka").setLevel(Level.ERROR)
 
     val conf = new SparkConf().setAppName("AllPairsShortestPath").setMaster("local[4]")
     val sc = new SparkContext(conf)
     sc.setCheckpointDir("checkpoint/")
-    val n = 200
-    val m = 100
+    val n = args(0).toInt
+    val m = args(1).toInt
+    val stepSize = args(2).toInt
     val graph = generateGraph(n, sc)
     val matA = generateInput(graph, n, sc, m, m)
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
-
-
-
     val localMat = matA.toLocalMatrix()
-    val resultMat = time{distributedApsp(matA, 20, ApspPartitioner, sc)}
+    val resultMat = time{distributedApsp(matA, stepSize, ApspPartitioner, sc)}
     //val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, sc)}
     val resultLocalMat = resultMat.toLocalMatrix()
     //val resultLocalMat1 = resultMat1.toLocalMatrix()
@@ -53,8 +52,7 @@ object AllPairsShortestPath {
     val result = block    // call-by-name
     val t1 = System.nanoTime()
     val duration = Duration(t1 - t0, NANOSECONDS)
-    println("Elapsed time: " + duration.toMinutes + " minutes " +
-      (duration.toSeconds - duration.toMinutes * 60) + " seconds" )
+    println("Elapsed time: " + duration.toSeconds + "s")
     result
   }
 
