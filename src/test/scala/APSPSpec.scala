@@ -38,7 +38,7 @@ class APSPSpec extends FlatSpec {
 
   it should "match our APSP matrix" in {
     println(fourByFourBlockMatrx.toLocalMatrix())
-    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner, sc).toLocalMatrix())
+    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner, sc, 2).toLocalMatrix())
     val expected = BDM(
       (0.0, 4.0, 4.0, 2.0),
       (2.0, 0.0, 1.0, 3.0),
