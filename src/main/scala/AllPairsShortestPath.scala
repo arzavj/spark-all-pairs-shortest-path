@@ -37,7 +37,7 @@ object AllPairsShortestPath {
     val resultLocalMat1 = resultMat1.toLocalMatrix()
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     //println(matA.toLocalMatrix().toString())
-    println(localMat.toString)
+    //println(localMat.toString)
 
     println(resultLocalMat.toString)
     println()
@@ -247,23 +247,26 @@ object AllPairsShortestPath {
       }
       val blockIndex = i / blockNInter
       val posInBlock = i - blockIndex * blockNInter
-      val startIndex = posInBlock * stepSize
-      val endIndex = math.min(A.rowsPerBlock, (posInBlock + 1) * stepSize)
+      val BlocknRows = (blockIndex + 1) match {
+        case A.numRowBlocks => A.numRows.toInt - (A.numRowBlocks - 1) * A.rowsPerBlock
+        case _ => A.rowsPerBlock
+      }
+      val startIndex = math.min(BlocknRows - 1, posInBlock * stepSize)
+      val endIndex = math.min(BlocknRows, (posInBlock + 1) * stepSize)
       // Calculate the APSP of the square matrix
       val squareMat = apspRDD.filter(kv => (kv._1._1 == blockIndex) && (kv._1._2 == blockIndex))
           .mapValues(localMat =>
-        fromBreeze(localFW(toBreeze(localMat)(math.min(localMat.numRows - 1, startIndex) until math.min(localMat.numRows, endIndex),
-          math.min(localMat.numCols - 1, startIndex) until math.min(localMat.numCols, endIndex)))))
+        fromBreeze(localFW(toBreeze(localMat)(startIndex until endIndex, startIndex until endIndex))))
           .first._2
       val x = sc.broadcast(squareMat)
         // the rowRDD updated by squareMat
       rowRDD = apspRDD.filter(_._1._1 == blockIndex)
         .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(x.value),
-        toBreeze(localMat)(math.min(localMat.numRows - 1, startIndex) until math.min(localMat.numRows, endIndex), ::))))
+        toBreeze(localMat)(startIndex until endIndex, ::))))
       // the colRDD updated by squareMat
       colRDD  = apspRDD.filter(_._1._2 == blockIndex)
-        .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(localMat)(::,
-        math.min(localMat.numCols - 1, startIndex) until math.min(localMat.numCols, endIndex)), toBreeze(x.value))))
+        .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(localMat)(::, startIndex until endIndex),
+        toBreeze(x.value))))
 
 
       apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, ApspPartitioner),
