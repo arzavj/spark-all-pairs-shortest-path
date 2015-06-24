@@ -18,4 +18,12 @@ cd spark
 
 ./bin/spark-submit --class AllPairsShortestPath --master spark://ec2-54-146-149-83.compute-1.amazonaws.com:7077 \
  --deploy-mode cluster hdfs://ec2-54-146-149-83.compute-1.amazonaws.com:9010/vol/all-pairs-shortest-path_2.10-1.0.jar
+ 
+ 
+ TODOs:
+ 1. ask Rezar (distance first / procedures)
+ 2. design API
+ 2. implement API + commenting + cleaning the code
+ 3. write unit tests
+ 4. write readme file
 
