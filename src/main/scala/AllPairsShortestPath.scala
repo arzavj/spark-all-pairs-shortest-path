@@ -32,16 +32,16 @@ object AllPairsShortestPath {
 
     val localMat = matA.toLocalMatrix()
     val resultMat = time{distributedApsp(matA, stepSize, ApspPartitioner, sc, interval)}
-    val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, sc, interval)}
+    //val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, sc, interval)}
     val resultLocalMat = resultMat.toLocalMatrix()
-    val resultLocalMat1 = resultMat1.toLocalMatrix()
+    //val resultLocalMat1 = resultMat1.toLocalMatrix()
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     //println(matA.toLocalMatrix().toString())
     //println(localMat.toString)
 
-    println(resultLocalMat.toString)
-    println()
-    println(resultLocalMat1.toString)
+    //println(resultLocalMat.toString)
+    //println()
+    //println(resultLocalMat1.toString)
    // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
    // blockMinPlus(matA.blocks, matA.transpose.blocks, matA.numRowBlocks, matA.numColBlocks, ApspPartitioner).foreach(println)
     System.exit(0)
@@ -154,37 +154,52 @@ object AllPairsShortestPath {
 
 
 
-
-  def localMinPlus(A: BDM[Double], B: BDM[Double]): BDM[Double] = {
+  def localMinPlus(A: BDM[Double], B: BDM[Double], positions:Range): (BDM[Double], BDM[Double]) = {
     require(A.cols == B.rows, " Num cols of A does not match the num rows of B")
-    val k = A.cols
+    val updatedPath = BDM.zeros[Double](A.rows, A.cols)
     val onesA = DenseVector.ones[Double](B.cols)
     val onesB = DenseVector.ones[Double](A.rows)
-    var AMinPlusB = A(::, 0) * onesA.t + onesB * B(0, ::)
-    if (k > 1) {
-      for (i <- 1 until k) {
+    val AMinPlusB = A(::, 0) * onesA.t + onesB * B(0, ::)
+    if (A.cols > 1) {
+      for (i <- 1 until A.cols) {
         val a = A(::, i)
         val b = B(i, ::)
-        val aPlusb = a * onesA.t + onesB * b
-        AMinPlusB = min(aPlusb, AMinPlusB)
+       // val aPlusb = a * onesA.t + onesB * b
+       // AMinPlusB = min(aPlusb, AMinPlusB)
+        for (j <- 0 until A.rows)
+          for (k <- 0 until A.cols)
+            if (a(j) + b(k) < AMinPlusB(j, k)) {
+              AMinPlusB(j, k) = a(j) + b(k)
+              updatedPath(j, k) = positions(i) * 1.0
+            }
       }
     }
-    AMinPlusB
+    (AMinPlusB, updatedPath)
   }
 
   /**
-   * Calculate APSP for a local square matrix
+   * Calculate APSP for a local square matrix and update the path midpoint
    */
-  def localFW(A: BDM[Double]): BDM[Double] = {
+  def localFW(A: BDM[Double], positions:Range): (BDM[Double], BDM[Double]) = {
     require(A.rows == A.cols, "Matrix for localFW should be square!")
-    var B = A
-    val onesA = DenseVector.ones[Double](A.rows)
+    val B = A
+
+    // initialize the path matrix
+    val updatedPath = BDM.zeros[Double](A.rows, A.cols) :-= 1.0
+
+    //val onesA = DenseVector.ones[Double](A.rows)
     for (i <- 0 until A.rows) {
       val a = B(::, i)
       val b = B(i, ::)
-      B = min(B, a * onesA.t + onesA * b)
+      //B = min(B, a * onesA.t + onesA * b)
+      for (j <- 0 until B.rows)
+        for (k <- 0 until B.cols)
+          if (a(j) + b(k) < B(j, k)) {
+            B(j, k) = a(j) + b(k)
+            updatedPath(j, k) = positions(i) * 1.0
+          }
     }
-    B
+    (B, updatedPath)
   }
 
   def blockMin(Ablocks: RDD[((Int, Int), Matrix)], Bblocks: RDD[((Int, Int), Matrix)],
@@ -232,19 +247,24 @@ object AllPairsShortestPath {
     require(A.numRowBlocks == A.numColBlocks, "The blocks making up the adjacency matrix must be square.")
     require(A.rowsPerBlock == A.colsPerBlock, "The matrix in each block should be square")
     require(stepSize <= A.rowsPerBlock, "Step size must be less than number of rows in a block.")
-    val n = A.numRows()
-    //val niter = math.ceil(n * 1.0 / stepSize).toInt
+
     val blockNInter = math.ceil(A.rowsPerBlock * 1.0 / stepSize).toInt
     val niter = blockNInter * (A.numRowBlocks - 1) +
       math.ceil((A.numRows - A.rowsPerBlock * (A.numRowBlocks - 1))  * 1.0 / stepSize).toInt
+
+    //var apspRDD = A.blocks
+    //apspRDD has two elements: the distance matrix and the path midpoint matrix
     var apspRDD = A.blocks
-    var rowRDD : RDD[((Int, Int), Matrix)] = null
-    var colRDD : RDD[((Int, Int), Matrix)] = null
-    for (i <- 0 to (niter - 1)) {
+      .mapValues(localMat => (localMat, fromBreeze(BDM.zeros[Double](localMat.numRows, localMat.numCols) - 1.0)))
+    //var rowRDD : RDD[((Int, Int), Matrix)] = null
+    //var colRDD : RDD[((Int, Int), Matrix)] = null
+
+    for (i <- 0 until niter) {
       if ((i + 1) % interval == 0) {
         apspRDD.checkpoint()
         apspRDD.count()
       }
+
       val blockIndex = i / blockNInter
       val posInBlock = i - blockIndex * blockNInter
       val BlocknRows = (blockIndex + 1) match {
@@ -253,26 +273,36 @@ object AllPairsShortestPath {
       }
       val startIndex = math.min(BlocknRows - 1, posInBlock * stepSize)
       val endIndex = math.min(BlocknRows, (posInBlock + 1) * stepSize)
-      // Calculate the APSP of the square matrix
+      val positions = sc.broadcast((blockIndex * A.rowsPerBlock + startIndex) until (blockIndex * A.rowsPerBlock + endIndex))
+
+      // Calculate the APSP of the square matrix and update the path midpoint
+      // squareMat is an RDD of length 1 storing the updated square matrix and the midpoints of that matrix
       val squareMat = apspRDD.filter(kv => (kv._1._1 == blockIndex) && (kv._1._2 == blockIndex))
-          .mapValues(localMat =>
-        fromBreeze(localFW(toBreeze(localMat)(startIndex until endIndex, startIndex until endIndex))))
-          .first._2
-      val x = sc.broadcast(squareMat)
-        // the rowRDD updated by squareMat
-      rowRDD = apspRDD.filter(_._1._1 == blockIndex)
-        .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(x.value),
-        toBreeze(localMat)(startIndex until endIndex, ::))))
+          .mapValues { case (distMat, pathMat) => {
+        val updated = localFW(toBreeze(distMat)(startIndex to endIndex, startIndex to endIndex), positions.value)
+        (fromBreeze(updated._1), fromBreeze(updated._2))
+      }}
+
+      val x = sc.broadcast(squareMat.first._2._1)
+
+        // the rowRDD updated by squareMat, an RDD storing both the distance and the path midpoints
+      val rowRDD = apspRDD.filter(_._1._1 == blockIndex)
+        .mapValues{ case (distMat, pathMat) => {
+          val updated = localMinPlus(toBreeze(x.value), toBreeze(distMat)(startIndex until endIndex, ::), positions.value)
+          (fromBreeze(updated._1), fromBreeze((updated._2)))
+        }}
       // the colRDD updated by squareMat
-      colRDD  = apspRDD.filter(_._1._2 == blockIndex)
-        .mapValues(localMat => fromBreeze(localMinPlus(toBreeze(localMat)(::, startIndex until endIndex),
-        toBreeze(x.value))))
+      val colRDD  = apspRDD.filter(_._1._2 == blockIndex)
+        .mapValues{ case (distMat, pathMat) => {
+        val updated = localMinPlus(toBreeze(distMat)(::, startIndex until endIndex), toBreeze(x.value), positions.value)
+        (fromBreeze(updated._1), fromBreeze((updated._2)))
+      }}
 
-
+      // need updates
       apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, ApspPartitioner),
         ApspPartitioner)
     }
-    new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
+    new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, A.numRows, A.numCols)
   }
 }
 
