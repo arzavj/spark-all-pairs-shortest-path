@@ -31,8 +31,8 @@ object AllPairsShortestPath {
     val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
 
     val localMat = matA.toLocalMatrix()
-    val resultMat = time{distributedApsp(matA, stepSize, ApspPartitioner, sc, interval)}
-    val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, sc, interval)}
+    val resultMat = time{distributedApsp(matA, stepSize, ApspPartitioner, interval)}
+    val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, interval)}
     val resultLocalMat = resultMat.toLocalMatrix()
     val resultLocalMat1 = resultMat1.toLocalMatrix()
    // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
@@ -218,6 +218,8 @@ object AllPairsShortestPath {
   }
 
 
+  
+
   /**
    *
    * @param A nxn adjacency matrix represented as a BlockMatrix
@@ -226,12 +228,13 @@ object AllPairsShortestPath {
    * @return
    */
   def distributedApsp(A: BlockMatrix, stepSize: Int, ApspPartitioner: GridPartitioner,
-                      sc: SparkContext, interval: Int): BlockMatrix = {
+                      interval: Int): BlockMatrix = {
     require(A.numRows() == A.numCols(), "The adjacency matrix must be square.")
     //require(A.rowsPerBlock == A.colsPerBlock, "The matrix must be square.")
     require(A.numRowBlocks == A.numColBlocks, "The blocks making up the adjacency matrix must be square.")
     require(A.rowsPerBlock == A.colsPerBlock, "The matrix in each block should be square")
     require(stepSize <= A.rowsPerBlock, "Step size must be less than number of rows in a block.")
+	  val sc = A.blocks.sparkContext
     val n = A.numRows()
     //val niter = math.ceil(n * 1.0 / stepSize).toInt
     val blockNInter = math.ceil(A.rowsPerBlock * 1.0 / stepSize).toInt
