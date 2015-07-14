@@ -31,7 +31,7 @@ object AllPairsShortestPath {
     //val stepSize = args(2).toInt
     //val interval = args(3).toInt
     val graph = generateGraph(n, sc)
-    val result = new APSP
+    val apsp = new DistributedBlockFW
 
     //val matA = generateInput(graph, n, sc, m, m)
     //val ApspPartitioner = GridPartitioner(matA.numRowBlocks, matA.numColBlocks, matA.blocks.partitions.length)
@@ -40,11 +40,11 @@ object AllPairsShortestPath {
     //val resultMat = time{distributedApsp(matA, stepSize, ApspPartitioner, interval)}
 
 
-    val resultMat = time {
-      result.compute(graph, 3)
+    val result = time {
+      apsp.compute(graph, 3)
     }
     //val resultMat1 = time{distributedApsp(matA, 1, ApspPartitioner, interval)}
-    val resultLocalMat = resultMat.toLocalMatrix()
+    val resultLocalMat = result.toLocal()
     //val resultLocalMat1 = resultMat1.toLocalMatrix()
     // println(fromBreeze(localMinPlus(toBreeze(localMat), toBreeze(localMat.transpose))).toString())
     //println(matA.toLocalMatrix().toString())
@@ -52,7 +52,7 @@ object AllPairsShortestPath {
 
     println(resultLocalMat.toString)
     println()
-    println(result.lookupDist(resultMat, 1, 2))
+    println(result.lookupDist(1, 2))
     //println()
     //println(resultLocalMat1.toString)
     // val collectedValues = blockMin(matA.blocks, matA.transpose.blocks, ApspPartitioner).foreach(println)
@@ -80,7 +80,7 @@ object AllPairsShortestPath {
 
 
 
-class APSP (
+class DistributedBlockFW (
              var stepSize: Int = 250,
              var checkpointInterval: Int = 2,
              var checkpointDir: String = "checkpoint/"
@@ -275,15 +275,14 @@ class APSP (
    *
    * @param A nxn adjacency matrix represented as a BlockMatrix
    *          requires the blocks to be square (m * m)
-   *          also requires that for the (i, j)th block, if i < m-1 and j < m-1 then the matrix
-   *          in the block must have size A.rowsPerBlock * A.colsPerBlock
+   *
    */
-  def compute(A: BlockMatrix): BlockMatrix = {
+  def compute(A: BlockMatrix): ApspResult = {
     require(A.numRows() == A.numCols(), "The adjacency matrix must be square.")
     //require(A.rowsPerBlock == A.colsPerBlock, "The matrix must be square.")
     require(A.numRowBlocks == A.numColBlocks, "The blocks making up the adjacency matrix must be square.")
     require(A.rowsPerBlock == A.colsPerBlock, "The matrix in each block should be square")
-    //require(stepSize <= A.rowsPerBlock, "Step size must be less than number of rows in a block.")
+    A.validate()
     if (stepSize > A.rowsPerBlock) {
       stepSize = A.rowsPerBlock
     }
@@ -330,22 +329,17 @@ class APSP (
       apspRDD = blockMin(apspRDD, blockMinPlus(colRDD, rowRDD, A.numRowBlocks, A.numColBlocks, apspPartitioner),
         apspPartitioner)
     }
-    new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
+    val result = new BlockMatrix(apspRDD, A.rowsPerBlock, A.colsPerBlock, n, n)
+    result.cache()
+    new ApspResult(n, result)
   }
 
-  def compute(graph: Graph[Long, Double], sizePerBlock: Int): BlockMatrix = {
+  def compute(graph: Graph[Long, Double], sizePerBlock: Int): ApspResult = {
     val A = graphToAdjacencyMat(graph, sizePerBlock)
     compute(A)
   }
 
-  def lookupDist(apspResult: BlockMatrix, srcId: Long, dstId: Long): Double = {
-    val sizePerBlock = apspResult.rowsPerBlock
-    val rowBlockId = (srcId/sizePerBlock).toInt
-    val colBlockId = (dstId/sizePerBlock).toInt
-    val block = apspResult.blocks.filter{case ((i, j), _) => ( i == rowBlockId) & (j == colBlockId)}
-    .first._2
-    block.toArray((dstId % sizePerBlock).toInt * block.numRows + (srcId % sizePerBlock).toInt)
-  }
+
 }
 
 
