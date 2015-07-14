@@ -8,6 +8,23 @@ import AllPairsShortestPath._
  */
 class LocalMinPlus extends FlatSpec {
 
+  def localMinPlus(A: BDM[Double], B: BDM[Double]): BDM[Double] = {
+    require(A.cols == B.rows, " Num cols of A does not match the num rows of B")
+    val k = A.cols
+    val onesA = DenseVector.ones[Double](B.cols)
+    val onesB = DenseVector.ones[Double](A.rows)
+    var AMinPlusB = A(::, 0) * onesA.t + onesB * B(0, ::)
+    if (k > 1) {
+      for (i <- 1 until k) {
+        val a = A(::, i)
+        val b = B(i, ::)
+        val aPlusb = a * onesA.t + onesB * b
+        AMinPlusB = min(aPlusb, AMinPlusB)
+      }
+    }
+    AMinPlusB
+  }
+
 
   def fourByFourBlockMatrx = {
     BDM(

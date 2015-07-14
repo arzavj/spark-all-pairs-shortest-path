@@ -1,4 +1,5 @@
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.mllib.linalg.Matrix
 import org.apache.spark.{SparkContext, SparkConf}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
 import org.scalatest.{Outcome, FlatSpec}
@@ -32,13 +33,18 @@ class APSPSpec extends FlatSpec {
     GridPartitioner(fourByFourBlockMatrx.numRowBlocks, fourByFourBlockMatrx.numColBlocks, fourByFourBlockMatrx.blocks.partitions.length)
   }
 
+  def toBreeze(A: Matrix): BDM[Double] = {
+    new BDM[Double](A.numRows, A.numCols, A.toArray)
+  }
+
   "The sample 4x4 Block Matrix" should "be valid" in {
     fourByFourBlockMatrx.validate()
   }
 
   it should "match our APSP matrix" in {
     println(fourByFourBlockMatrx.toLocalMatrix())
-    val observed = toBreeze(distributedApsp(fourByFourBlockMatrx, 1, ApspPartitioner, sc, 2).toLocalMatrix())
+    val result = new APSP()
+    val observed = toBreeze(result.compute(fourByFourBlockMatrx).toLocalMatrix())
     val expected = BDM(
       (0.0, 4.0, 4.0, 2.0),
       (2.0, 0.0, 1.0, 3.0),

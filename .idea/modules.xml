@@ -4,8 +4,6 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea_modules/All Pairs Shortest Path.iml" filepath="$PROJECT_DIR$/.idea_modules/All Pairs Shortest Path.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea_modules/All Pairs Shortest Path-build.iml" filepath="$PROJECT_DIR$/.idea_modules/All Pairs Shortest Path-build.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/spark-all-pairs-shortest-path.iml" filepath="$PROJECT_DIR$/.idea/modules/spark-all-pairs-shortest-path.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/spark-all-pairs-shortest-path-build.iml" filepath="$PROJECT_DIR$/.idea/modules/spark-all-pairs-shortest-path-build.iml" />
     </modules>
   </component>
 </project>
